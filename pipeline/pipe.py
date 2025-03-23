@@ -7,6 +7,8 @@ import torch.cuda
 from .worker import Task, create_workers
 from .partition import _split_module
 
+from functools import partial
+
 # ASSIGNMENT 4.2
 def _clock_cycles(num_batches: int, num_partitions: int) -> Iterable[List[Tuple[int, int]]]:
     '''Generate schedules for each clock cycle.
@@ -65,7 +67,12 @@ class Pipe(nn.Module):
         Please note that you should put the result on the last device. Putting the result on the same device as input x will lead to pipeline parallel training failing.
         '''
         # BEGIN SOLUTION
-        raise NotImplementedError("Pipeline Parallel Not Implemented Yet")
+        micro_x = list(x.split(self.split_size, dim=0))
+        schedule = _clock_cycles(len(micro_x), len(self.partitions))
+
+        for sch_t in schedule:
+            self.compute(micro_x, sch_t)
+        return torch.cat(micro_x, dim=0).to(self.devices[-1])
         # END SOLUTION
 
     # ASSIGNMENT 4.2
@@ -82,6 +89,20 @@ class Pipe(nn.Module):
         devices = self.devices
 
         # BEGIN SOLUTION
-        raise NotImplementedError("Pipeline Parallel Not Implemented Yet")
+        inp_qs, out_qs = create_workers(devices)
+        for bid, did in schedule:
+            inp_qs[did].put(
+                Task(
+                    partial(
+                        partitions[did].to(devices[did]), 
+                        batches[bid].to(devices[did])
+                    )
+                )
+            )
+        for bid, did in schedule:
+            ot = (False, None)
+            while ot[1] is None:
+                ot = out_qs[did].get()
+            batches[bid] = ot[1][1]
         # END SOLUTION
 
